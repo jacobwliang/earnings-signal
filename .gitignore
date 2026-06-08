@@ -1,0 +1,10 @@
+data/raw/
+data/processed/
+models/finbert-finetuned/
+mlruns/
+__pycache__/
+*.pyc
+.env
+*.parquet
+*.csv
+.DS_Store

@@ -1,0 +1,13 @@
+transformers
+torch
+datasets
+yfinance
+pandas
+pyarrow
+mlflow
+scikit-learn
+matplotlib
+seaborn
+jupyter
+requests
+beautifulsoup4
