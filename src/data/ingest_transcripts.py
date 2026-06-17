@@ -15,7 +15,7 @@ _PROJECT_ROOT = Path(__file__).parents[2]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.data.utils import (
+from src.data.utils import (  # noqa: E402
     fix_list_dates,
     parse_dates,
     add_transcript_len,
