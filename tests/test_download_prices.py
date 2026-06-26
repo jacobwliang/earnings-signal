@@ -1,9 +1,12 @@
 import pandas as pd
+import pytest
 from pathlib import Path
 
 PRICES_PATH = Path("data/raw/prices_raw.parquet")
 FAILURES_PATH = Path("data/raw/price_fetch_failures.parquet")
 TRANSCRIPTS_PATH = Path("data/raw/transcripts.parquet")
+
+pytestmark = pytest.mark.data
 
 
 def test_prices_parquet_exists_and_readable():

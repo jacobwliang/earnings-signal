@@ -29,4 +29,6 @@ jobs:
         run: ruff check src/
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short
+        # Exclude data-validation tests: they read the real dataset, which is
+        # gitignored and not present on the CI runner. Run those locally.
+        run: pytest tests/ -v --tb=short -m "not data"
