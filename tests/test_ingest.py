@@ -5,6 +5,8 @@ from pathlib import Path
 
 PARQUET_PATH = Path(__file__).parents[1] / "data" / "raw" / "transcripts.parquet"
 
+pytestmark = pytest.mark.data
+
 
 @pytest.fixture(scope="module")
 def df():

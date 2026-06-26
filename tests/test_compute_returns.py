@@ -1,8 +1,11 @@
 import pandas as pd
+import pytest
 from pathlib import Path
 
 RETURNS_PATH = Path("data/raw/returns.parquet")
 TRANSCRIPTS_PATH = Path("data/raw/transcripts.parquet")
+
+pytestmark = pytest.mark.data
 
 EXPECTED_COLUMNS = ["ticker", "return_start_date", "price_t0", "return_1d", "return_5d"]
 # Sanity bounds for a 1-to-5 business-day forward return: a real move should not
