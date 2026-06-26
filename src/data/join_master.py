@@ -6,8 +6,10 @@ inner joins them on (ticker, return_start_date). The result keeps every
 transcript column plus price_t0, return_1d, and return_5d from the returns side
 and is written to data/processed/master.parquet.
 
-This step never fills, drops, or imputes null returns: rows that survive the
-inner join carry their returns through unchanged, nulls and all.
+Rows with a null price_t0 are dropped: without a starting price no forward
+return can be computed for any horizon, so those rows carry no modeling value.
+Null return_1d/return_5d values are still carried through unchanged on the rows
+that survive — a row can have a valid price_t0 but a missing t+1 or t+5 price.
 """
 
 import pandas as pd
@@ -68,13 +70,28 @@ def merge_master(transcripts: pd.DataFrame, returns: pd.DataFrame) -> pd.DataFra
     return transcripts.merge(returns, on=KEYS, how="inner")
 
 
-def log_stats(transcripts: pd.DataFrame, master: pd.DataFrame) -> None:
-    """Print row counts, dropped rows, and null counts/rates for the returns."""
+def drop_null_price_t0(master: pd.DataFrame) -> pd.DataFrame:
+    """Drop rows with a null price_t0.
+
+    A missing starting price makes every forward return undefined, so these rows
+    cannot contribute a label and are removed before the dataset is saved.
+    """
+    return master[master["price_t0"].notna()].reset_index(drop=True)
+
+
+def log_stats(transcripts: pd.DataFrame, joined: pd.DataFrame, master: pd.DataFrame) -> None:
+    """Print row counts, dropped rows, and null counts/rates for the returns.
+
+    `joined` is the inner-join result before the null-price_t0 drop, so the two
+    drop causes (no return match vs. null price_t0) can be reported separately.
+    """
     n_transcripts = len(transcripts)
+    n_joined = len(joined)
     n_master = len(master)
     print(f"Rows in transcripts: {n_transcripts}")
     print(f"Rows in master: {n_master}")
-    print(f"Rows dropped (no return match): {n_transcripts - n_master}")
+    print(f"Rows dropped (no return match): {n_transcripts - n_joined}")
+    print(f"Rows dropped (null price_t0): {n_joined - n_master}")
     for col in ("return_1d", "return_5d"):
         null_count = master[col].isna().sum()
         null_rate = null_count / n_master if n_master else 0.0
@@ -94,8 +111,9 @@ def main() -> None:
     validate_no_column_overlap(transcripts, returns)
     validate_unique_keys(transcripts, "transcripts")
     validate_unique_keys(returns, "returns")
-    master = merge_master(transcripts, returns)
-    log_stats(transcripts, master)
+    joined = merge_master(transcripts, returns)
+    master = drop_null_price_t0(joined)
+    log_stats(transcripts, joined, master)
     save_master(master)
 
 

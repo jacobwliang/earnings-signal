@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 from src.data.join_master import (
+    drop_null_price_t0,
     merge_master,
     validate_no_column_overlap,
     validate_unique_keys,
@@ -109,6 +110,41 @@ def test_price_t0_not_null():
     )
     master = merge_master(transcripts, returns)
     assert master["price_t0"].isna().sum() == 0
+
+
+def test_drop_null_price_t0():
+    """drop_null_price_t0 removes rows with a null price_t0 and resets the index."""
+    master = pd.DataFrame(
+        {
+            "ticker": ["AAPL", "MSFT", "GOOG"],
+            "return_start_date": ["2024-01-02", "2024-01-03", "2024-01-04"],
+            "price_t0": [185.0, None, 140.0],
+            "return_1d": [0.01, None, 0.02],
+            "return_5d": [0.03, None, 0.01],
+        }
+    )
+    result = drop_null_price_t0(master)
+    assert len(result) == 2
+    assert result["price_t0"].isna().sum() == 0
+    assert result["ticker"].tolist() == ["AAPL", "GOOG"]
+    assert result.index.tolist() == [0, 1]
+
+
+def test_drop_null_price_t0_keeps_null_returns():
+    """drop_null_price_t0 keeps rows whose price_t0 is present but returns are null."""
+    master = pd.DataFrame(
+        {
+            "ticker": ["AAPL", "MSFT"],
+            "return_start_date": ["2024-01-02", "2024-01-03"],
+            "price_t0": [185.0, 370.0],
+            "return_1d": [0.01, None],
+            "return_5d": [None, 0.01],
+        }
+    )
+    result = drop_null_price_t0(master)
+    assert len(result) == 2
+    assert result["return_1d"].isna().sum() == 1
+    assert result["return_5d"].isna().sum() == 1
 
 
 def test_return_null_rates():
