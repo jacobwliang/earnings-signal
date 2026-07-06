@@ -54,7 +54,7 @@ Note: ES just stands for earnings signal
 ### Fine-tuning (current stage)
 
 - Dataset: Financial PhraseBank, `sentences_75agree` config, 3,453 sentences — 62.1% neutral, 25.7% positive, 12.2% negative
-- Labels remapped once at load time from HuggingFace's native ordering to project-standard `{0: positive, 1: negative, 2: neutral}`
+- Each sentiment name is encoded at load time to the project-standard label ids `{0: neutral, 1: positive, 2: negative}` (matches `src/models/infer_baseline.py`; the index is the label id the fine-tuned head learns)
 - Split: 80/10/10, stratified, seed 42; proportion-drift checks (2% tolerance) and index-overlap checks; persisted to Parquet for reproducibility
 - Evaluation is a baseline ladder, not a single before/after: chance-floor baseline → linear probe (frozen backbone + logistic regression) → full fine-tune, with `finbert-tone` as an off-the-shelf reference point. The linear probe isolates fine-tuning's contribution from the backbone's pretraining.
 - Caveat: test split has only ~42 negative-class examples → ±14pp confidence interval on negative-class recall; treated as a real evaluation limitation, not a footnote

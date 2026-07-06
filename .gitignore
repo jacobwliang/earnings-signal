@@ -1,6 +1,6 @@
 data/raw/
 data/processed/
-models/finbert-finetuned/
+src/models/phrasebank_full_finetune/
 mlruns/
 __pycache__/
 *.pyc
