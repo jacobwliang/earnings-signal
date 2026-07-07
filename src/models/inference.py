@@ -15,6 +15,7 @@ the model is the pretrained FinBERT (``yiyanghkust/finbert-pretrain``) with a
 CUDA GPU (``main`` / the importable functions).
 """
 
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -29,11 +30,19 @@ MAX_LENGTH = 512
 BATCH_SIZE = 32
 
 # Paths resolve next to this script so it runs flat on Colab: drop
-# chunks.parquet beside infer_baseline.py and baseline_scores.parquet is
+# chunks.parquet beside inference.py and baseline_scores.parquet is
 # written back into the same folder.
 HERE = Path(__file__).resolve().parent
 CHUNKS_PATH = HERE / "chunks.parquet"
 BASELINE_SCORES_PATH = HERE / "baseline_scores.parquet"
+
+# Fine-tuned inference reuses the same scoring path with a different model
+# source and output file. The checkpoint dir is written by
+# finetune_phrasebank.py (gitignored); scores land alongside the other
+# results/ artifacts.
+ROOT = HERE.parents[1]
+FINETUNED_MODEL_PATH = HERE / "phrasebank_full_finetune"
+FINETUNED_SCORES_PATH = ROOT / "results" / "finetuned_scores.parquet"
 
 # FinBERT class index order; one named constant so it is trivial to flip.
 LABELS = ("neutral", "positive", "negative")
@@ -167,25 +176,74 @@ def log_stats(out: pd.DataFrame) -> None:
     )
 
 
-def main() -> None:
-    """Score chunks.parquet and write document-level baseline_scores.parquet."""
-    print(f"Loading model {MODEL_NAME} ...")
-    tokenizer, model = load_model()
+def run_inference(
+    model_source,
+    input_path: Path,
+    output_path: Path,
+    batch_size: int = BATCH_SIZE,
+) -> pd.DataFrame:
+    """Score ``input_path`` chunks with ``model_source`` and write document scores.
+
+    ``model_source`` is anything ``from_pretrained`` accepts: the baseline HF id
+    (:data:`MODEL_NAME`) or a local fine-tuned checkpoint dir
+    (:data:`FINETUNED_MODEL_PATH`). The scoring/aggregation path is identical for
+    both — only the model, input, and output vary — so the baseline result is
+    unchanged when called with the baseline defaults.
+    """
+    print(f"Loading model {model_source} ...")
+    tokenizer, model = load_model(str(model_source))
     device = get_device()
     model.to(device)
     print(f"Model loaded on device: {device}")
 
-    print(f"Reading chunks from {CHUNKS_PATH} ...")
-    chunks = pd.read_parquet(CHUNKS_PATH)
-    print(f"Read {len(chunks)} chunks; scoring in batches of {BATCH_SIZE} ...")
+    print(f"Reading chunks from {input_path} ...")
+    chunks = pd.read_parquet(input_path)
+    print(f"Read {len(chunks)} chunks; scoring in batches of {batch_size} ...")
 
-    scored = score_chunks(chunks, tokenizer, model, device)
+    scored = score_chunks(chunks, tokenizer, model, device, batch_size)
     print("Scoring done; aggregating to document level ...")
     out = aggregate_scores(scored)
 
     log_stats(out)
-    out.to_parquet(BASELINE_SCORES_PATH, index=False)
-    print(f"Wrote {len(out)} rows to {BASELINE_SCORES_PATH}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    out.to_parquet(output_path, index=False)
+    print(f"Wrote {len(out)} rows to {output_path}")
+    return out
+
+
+def main(argv=None) -> None:
+    """Run baseline or fine-tuned inference over the transcript chunks.
+
+    With no arguments this reproduces the original baseline run exactly:
+    ``MODEL_NAME`` over ``CHUNKS_PATH`` into ``BASELINE_SCORES_PATH``.
+    ``--mode finetuned`` swaps in the local fine-tuned checkpoint and writes
+    ``FINETUNED_SCORES_PATH`` instead; individual pieces can be overridden.
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mode", choices=("baseline", "finetuned"), default="baseline")
+    parser.add_argument(
+        "--model-path",
+        default=None,
+        help="Override the model id/dir (defaults per --mode).",
+    )
+    parser.add_argument("--input", type=Path, default=CHUNKS_PATH)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Override the output parquet path (defaults per --mode).",
+    )
+    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    args = parser.parse_args(argv)
+
+    if args.mode == "baseline":
+        model_source = args.model_path or MODEL_NAME
+        output = args.output or BASELINE_SCORES_PATH
+    else:  # finetuned
+        model_source = args.model_path or FINETUNED_MODEL_PATH
+        output = args.output or FINETUNED_SCORES_PATH
+
+    run_inference(model_source, args.input, output, args.batch_size)
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ is ~62% neutral / 26% positive / 12% negative) is handled with
 sqrt-inverse-frequency class weights in the cross-entropy loss; model selection
 and reporting use macro-F1 so the rare negative class counts equally.
 
-Label ids follow the project convention in ``src/models/infer_baseline.py``:
+Label ids follow the project convention in ``src/models/inference.py``:
 ``LABELS = ("neutral", "positive", "negative")`` -> 0=neutral, 1=positive,
 2=negative. The index IS the label id the head learns, so the order is
 load-bearing and must stay in sync with the baseline pipeline.
@@ -71,7 +71,7 @@ MODEL_NAME = "yiyanghkust/finbert-pretrain"
 NUM_LABELS = 3
 MAX_LENGTH = 96                    # lossless: longest PhraseBank sentence is ~81 words
 
-# Project label convention (matches infer_baseline.LABELS). Order is load-bearing:
+# Project label convention (matches inference.LABELS). Order is load-bearing:
 # the index IS the label id the fine-tuned head learns.
 LABELS = ("neutral", "positive", "negative")   # 0=neutral, 1=positive, 2=negative
 ID2LABEL = {i: name for i, name in enumerate(LABELS)}

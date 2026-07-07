@@ -4,11 +4,11 @@ Downloads the original FinancialPhraseBank-v1.0 archive, keeps the 75%-agreement
 subset, encodes each sentiment with *this project's* label ids, and writes
 stratified 80/10/10 train/valid/test parquet files under data/processed/.
 
-Label ids follow the project convention in ``src/models/infer_baseline.py``:
+Label ids follow the project convention in ``src/models/inference.py``:
 ``LABELS = ("neutral", "positive", "negative")`` -> 0=neutral, 1=positive,
 2=negative. The dataset stores the sentiment as a name per line, so we map that
 name straight to the project id, and ``validate_splits`` asserts at runtime that
-``LABELS`` here stays in sync with ``infer_baseline.LABELS``.
+``LABELS`` here stays in sync with ``inference.LABELS``.
 """
 
 import io
@@ -39,7 +39,7 @@ RANDOM_SEED = 42
 TEST_FRAC = 0.10                          # peeled off first (stratified)
 VALID_FRAC_OF_REMAINDER = TEST_FRAC / (1 - TEST_FRAC)  # 0.10/0.90 -> valid ~= 10% of total
 
-# Project label convention (matches infer_baseline.LABELS; drift-guarded at runtime).
+# Project label convention (matches inference.LABELS; drift-guarded at runtime).
 # Order is load-bearing: the index IS the label id the fine-tuned head learns.
 LABELS = ("neutral", "positive", "negative")            # 0=neutral, 1=positive, 2=negative
 LABEL_TO_ID = {name: i for i, name in enumerate(LABELS)}
@@ -117,9 +117,9 @@ def split_dataset(
 
 
 def assert_label_convention() -> None:
-    """Fail if our label ids drift from the project convention in infer_baseline.
+    """Fail if our label ids drift from the project convention in inference.
 
-    ``label`` here is coupled to ``infer_baseline.LABELS`` by position; if that
+    ``label`` here is coupled to ``inference.LABELS`` by position; if that
     tuple is ever reordered, this training data would be silently mislabeled
     relative to the model head. Read the tuple from source (via ``ast``) rather
     than importing the module, which would drag in torch/transformers just to
@@ -127,7 +127,7 @@ def assert_label_convention() -> None:
     """
     import ast
 
-    source = (ROOT / "src" / "models" / "infer_baseline.py").read_text()
+    source = (ROOT / "src" / "models" / "inference.py").read_text()
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Assign) and any(
             isinstance(t, ast.Name) and t.id == "LABELS" for t in node.targets
@@ -135,12 +135,12 @@ def assert_label_convention() -> None:
             baseline_labels = tuple(ast.literal_eval(node.value))
             break
     else:
-        raise ValueError("could not find LABELS in infer_baseline.py")
+        raise ValueError("could not find LABELS in inference.py")
 
     if LABELS != baseline_labels:
         raise ValueError(
             f"label convention drift: load_phrasebank.LABELS={LABELS} != "
-            f"infer_baseline.LABELS={baseline_labels}"
+            f"inference.LABELS={baseline_labels}"
         )
 
 
