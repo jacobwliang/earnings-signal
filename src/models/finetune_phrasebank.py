@@ -98,8 +98,8 @@ TIERS = {
         "eval_steps": None, "early_stop_patience": 2,
     },
     "full_finetune": {
-        "freeze_backbone": False, "learning_rate": 2e-5, "epochs": 10,
-        "eval_steps": 25, "early_stop_patience": 12,
+        "freeze_backbone": False, "learning_rate": 2e-5, "epochs": 4,
+        "eval_steps": 25, "early_stop_patience": 6,
     },
 }
 
