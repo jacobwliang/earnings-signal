@@ -85,9 +85,9 @@ fine-tuning depends on.
 ## Reproduce
 
 ```bash
-python -m src.models.infer_baseline \
+python -m src.models.inference \
     --input data/chunks.parquet \
-    --output-dir data/ \
+    --output data/baseline_scores.parquet \
     --batch-size 64
 ```
 
