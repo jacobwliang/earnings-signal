@@ -1,79 +1,47 @@
-# Fine-tuned Correlation Analysis (ES-12)
+## What was tested
 
-## Purpose
+- Whether earnings call tone (CEO/CFO sentiment, scored by a fine-tuned AI model) predicts how a stock moves the next day
+  - Specifically the company-specific move, after stripping out broad market swings (1-day abnormal return, market-adjusted using SPY)
+- Sample: 13,611 calls total
+  - CEO and CFO sentiment averaged into one score per call, since they share the same return
+  - About 12% of calls have only one speaker; those just use that speaker's score directly
+  - 13,429 to 13,507 calls have valid return data, depending on which window is being measured
 
-Test whether the fine-tuned FinBERT's call-level sentiment correlates with the
-**company-specific** part of the post-earnings move, and whether it beats the
-baseline chance floor. The primary endpoint is the **1-day abnormal return**
-(`abn_return_1d = return_1d − market_return_1d`, SPY as the market, beta = 1,
-same business-day window as the raw return) — raw returns are dominated by
-market-wide moves, so subtracting the market isolates what sentiment could
-plausibly predict. See [baseline_analysis.md](baseline_analysis.md) for the
-scores and the chance-floor construction.
+## What was found
 
-## What was run
+- Positive-sounding calls tend to see somewhat better next-day stock performance
+- Negative-sounding calls tend to see somewhat worse
+- The effect is modest but real
+  - Correlation (Spearman rho, a score from -1 to +1 measuring how consistently two things move together) = +0.10
+  - 95% confidence interval (the likely range for the true value) of [+0.087, +0.120]
+  - Confidence interval sits fully above zero, meaning the relationship is very unlikely to be chance
+  - Minimum detectable effect (the smallest rho this sample size could reliably tell apart from zero) is about ±0.009, so a rho of +0.10 is well above the noise floor
+- Holds up across conditions
+  - 1-day window: rho = +0.10 (n = 13,429)
+  - 5-day window: rho = +0.08 to +0.09 (n = 13,507)
+  - Same pattern with and without market adjustment
+  - All four variants statistically significant even after Benjamini-Hochberg correction (a check that raises the bar for significance when testing several related things at once, so we don't get a false positive by chance)
 
-- **Unit of analysis:** one row per call (13,611 calls). The CEO and CFO
-  rows of a call share its return, so their sentiment is averaged to the call
-  level; keeping both would be pseudo-replication. Single-speaker calls (~12%)
-  fall out of the same mean with no special-casing.
-- **Statistic:** Spearman rho (rank-based, robust to the return tails).
-- **Inference:** a **ticker-clustered** bootstrap (10,000 resamples, seed
-  42) — a ticker's calls are not independent, so whole tickers are resampled
-  together. Significance is judged by whether the 95% CI excludes zero. The
-  `p_value` column is scipy's asymptotic Spearman p as a cross-check only; it
-  ignores clustering and is anti-conservative.
-- **Multiple testing:** Benjamini-Hochberg across the fine-tuned robustness grid
-  (raw/abnormal × 1d/5d). The baseline floor and the difference test answer
-  different questions and are reported outside that family.
+## Why I trust it
 
-## Results
+- Tested at the company level, not the call level
+  - Used a ticker-clustered bootstrap (a resampling technique that treats each company, not each call, as one independent data point, since a company's calls tend to move together) with 10,000 resamples
+- Ran a control using an untrained version of the model
+  - Untrained model: rho = -0.002, 95% CI [-0.019, +0.015], essentially zero, as expected
+  - Difference between trained and untrained: +0.106, 95% CI [+0.082, +0.129], p < 0.001 (p-value here is the probability the difference could show up by chance alone; under 0.001 means very unlikely)
+  - Trained model finding a signal where the untrained one finds none is strong evidence the model is picking up something real, not an artifact of the return data
 
-**Primary — fine-tuned sentiment vs `abn_return_1d`:** rho = +0.1035,
-95% CI [+0.0866, +0.1200] (n = 13,429).
-The CI **excludes zero**.
+## What it means
 
-**Baseline floor (same endpoint):** rho = -0.0024,
-95% CI [-0.0192, +0.0148]. Expected to sit at
-zero — the baseline head is untrained.
+- Call sentiment carries genuine predictive signal about post-earnings stock reaction
+  - Small in size (rho around 0.10), but statistically reliable and above the noise floor for this sample size
+- Best used as one input among many, not a standalone trading signal
 
-**Fine-tuned − baseline (paired):** Δrho = +0.1059,
-95% CI [+0.0821, +0.1290]. The CI **does**
-exclude zero (bootstrap p = <0.001).
+## Caveats
 
-**Minimum detectable effect:** with n = 13,429 calls the i.i.d. floor
-is ≈ ±0.009; ticker clustering widens it. Read small non-significant rhos as
-*underpowered / near-zero*, not as proof of no relationship.
-
-### Robustness across return windows (BH-corrected)
-
-| return_col | n | rho | 95% CI | p (asymp.) | p (BH) | CI excl. 0 |
-|---|---|---|---|---|---|---|
-| `return_1d` | 13429 | +0.1035 | [+0.0867, +0.1198] | <0.001 | <0.001 | yes |
-| `abn_return_1d` | 13429 | +0.1035 | [+0.0866, +0.1200] | <0.001 | <0.001 | yes |
-| `return_5d` | 13507 | +0.0829 | [+0.0662, +0.1000] | <0.001 | <0.001 | yes |
-| `abn_return_5d` | 13507 | +0.0896 | [+0.0729, +0.1065] | <0.001 | <0.001 | yes |
-
-## Known limitations
-
-- **Abnormal return is beta = 1 (market-excess), not a fitted market model** — no
-  per-ticker beta or estimation window. This removes market-wide moves but not
-  systematic beta exposure; it is the low-lookahead choice.
-- **Asymptotic p-values ignore clustering** — the clustered bootstrap CI is the
-  trustworthy inference; the p columns are cross-checks.
-- **Speaker-source and subgroup cuts (ES-13) are out of scope here** — this is
-  the call-level primary analysis only.
-- **Missing returns** — `return_1d`/`return_5d` carry a few hundred nulls;
-  each correlation drops rows null in its own pair.
-
-## Reproduce
-
-```bash
-.venv/bin/python -m src.data.download_index
-.venv/bin/python -m src.analysis.correlate_returns --n-boot 10000 --seed 42
-```
-
-## Outputs
-
-- `results/correlation_results.csv` / `.json` — tidy, one row per analysis piece.
-- `reports/finetuned_correlation_analysis.md` — this report.
+- Market adjustment is simplified (assumes beta = 1, meaning we assume the stock moves exactly 1-for-1 with the market rather than fitting each company's actual sensitivity), not company-specific
+- Asymptotic p-values (the standard textbook version of this significance test) ignore clustering and would overstate confidence on their own; the clustered bootstrap CI is the trustworthy number here
+- This is the aggregate picture only
+  - Not yet broken down by speaker (CEO vs. CFO) or subgroup
+  - That breakdown is the next step
+- A few hundred calls are missing return data and were dropped from the relevant comparisons

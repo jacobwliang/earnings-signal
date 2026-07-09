@@ -1,6 +1,5 @@
 # RFC: Regularize the full fine-tune to reduce overfitting (ES-09/10)
 
-**Status:** proposed
 **Scope:** `src/models/finetune_phrasebank.py`, `full_finetune` tier only
 
 ## Summary
