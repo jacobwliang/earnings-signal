@@ -83,6 +83,42 @@ def compute_returns(transcripts: pd.DataFrame, close_df: pd.DataFrame) -> pd.Dat
     return pd.DataFrame.from_records(records)
 
 
+def compute_market_returns(index_close: pd.DataFrame, dates) -> pd.DataFrame:
+    """Compute the market (index) forward 1d/5d returns for each unique date.
+
+    Mirrors :func:`compute_returns`' business-day anchoring exactly — price_t0 one
+    business day before the date, and the 1d/5d returns from one and five business
+    days after — so a per-call abnormal return computed as ``stock_return -
+    market_return`` uses matching windows. ``index_close`` is a single-column frame
+    whose column is the index ticker (e.g. ``"SPY"``); :func:`get_price_on_date` is
+    reused unchanged for the exact-date lookups. One record is emitted per unique
+    date in ``dates``; a return is only computed when both its price and price_t0
+    are present, otherwise it is None.
+
+    This is a standalone library function — it is not wired into :func:`main` or the
+    price pipeline. The correlation analysis imports it to build abnormal returns.
+    """
+    ticker = index_close.columns[0]
+    bday = pd.tseries.offsets.BDay()
+    unique_dates = pd.to_datetime(pd.Series(list(dates))).dt.normalize().unique()
+    records = []
+    for date in unique_dates:
+        start = pd.Timestamp(date)
+        price_t0 = get_price_on_date(index_close, ticker, start - bday * 1)
+        price_t1 = get_price_on_date(index_close, ticker, start + bday * 1)
+        price_t5 = get_price_on_date(index_close, ticker, start + bday * 5)
+
+        market_return_1d = (price_t1 - price_t0) / price_t0 if price_t0 and price_t1 is not None else None
+        market_return_5d = (price_t5 - price_t0) / price_t0 if price_t0 and price_t5 is not None else None
+
+        records.append({
+            "return_start_date": start,
+            "market_return_1d": market_return_1d,
+            "market_return_5d": market_return_5d,
+        })
+    return pd.DataFrame.from_records(records)
+
+
 def save_output(df: pd.DataFrame, path: str) -> None:
     """Write the returns DataFrame to a Parquet file."""
     df.to_parquet(path)
