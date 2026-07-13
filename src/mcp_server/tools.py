@@ -9,6 +9,13 @@ FastMCP wiring can be proven end to end. The real delegation to
 :mod:`data_access`/:mod:`scoring` lands on the follow-up feature branches.
 """
 
+from src.models.inference import LABELS
+
+from .data_access import (
+    FINETUNED_SCORES_PATH,
+    search_ticker_scores,
+    ticker_is_covered,
+)
 from .schemas import (
     CompareTickersResult,
     EarningsCallResult,
@@ -51,22 +58,33 @@ def search_transcripts(
         A :class:`SearchTranscriptsResult` echoing the query and carrying the
         matched per-call classifications.
     """
-    # STUB: hardcoded mock, no real logic yet (see feature/search-transcripts).
+    df = search_ticker_scores(ticker, start_date, end_date)
+
+    model_run_id = FINETUNED_SCORES_PATH.stem
+    results = []
+    for row in df.itertuples(index=False):
+        probabilities = {label: float(getattr(row, f"prob_{label}")) for label in LABELS}
+        results.append(
+            EarningsCallResult(
+                earnings_date=str(row.return_start_date),
+                label=max(LABELS, key=probabilities.get),
+                probabilities=probabilities,
+                model_run_id=model_run_id,
+                coverage_flag="complete",
+            )
+        )
+
+    # Non-empty results imply coverage; only pay the extra read to distinguish
+    # never-covered from covered-but-no-matches-in-range when results are empty.
+    ticker_covered = bool(results) or ticker_is_covered(ticker)
+
     return SearchTranscriptsResult(
         ticker=ticker,
         start_date=start_date,
         end_date=end_date,
-        ticker_covered=True,
-        match_count=1,
-        results=[
-            EarningsCallResult(
-                earnings_date="2024-01-01",
-                label="neutral",
-                probabilities={"neutral": 0.6, "positive": 0.25, "negative": 0.15},
-                model_run_id="stub-run-id",
-                coverage_flag="complete",
-            )
-        ],
+        ticker_covered=ticker_covered,
+        match_count=len(results),
+        results=results,
     )
 
 

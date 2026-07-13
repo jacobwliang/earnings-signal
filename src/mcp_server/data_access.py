@@ -21,6 +21,7 @@ prove the FastMCP wiring; the real reads land on the feature branches noted per
 function.
 """
 
+import datetime as dt
 from pathlib import Path
 
 import pandas as pd
@@ -44,34 +45,86 @@ FINETUNED_SCORES_PATH = _REPO_ROOT / "results" / "inference" / "finetuned_scores
 # branch picks one (likely finetuned) and threads it through explicitly.
 
 
+# Result schema for search_ticker_scores: one aggregated row per earnings call.
+_RESULT_COLUMNS = ["ticker", "return_start_date", "transcript_id"]
+
+
+def _read_scores(scores_path: Path) -> pd.DataFrame:
+    """Read a ``*_scores.parquet`` file. Single seam, monkeypatched in tests."""
+    return pd.read_parquet(scores_path)
+
+
+def _match_ticker(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
+    """Case-insensitive filter of ``df`` to rows whose ``ticker`` matches."""
+    return df[df["ticker"].str.upper() == ticker.strip().upper()]
+
+
+def _parse_iso_date(value: str, field: str) -> dt.date:
+    """Parse an ISO ``YYYY-MM-DD`` string, re-raising with a clear message.
+
+    ``date.fromisoformat`` alone raises a low-level ``Invalid isoformat string``
+    error; this wraps it so callers see which field was malformed and what
+    format is expected.
+    """
+    try:
+        return dt.date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(
+            f"{field} must be an ISO date (YYYY-MM-DD), got {value!r}"
+        ) from exc
+
+
 def search_ticker_scores(
     ticker: str,
     start_date: str | None = None,
     end_date: str | None = None,
     scores_path: Path = FINETUNED_SCORES_PATH,
 ) -> pd.DataFrame:
-    """Return the per-call sentiment rows for ``ticker`` within a date range.
+    """Return one aggregated sentiment row per earnings call for ``ticker``.
 
-    Filters ``scores_path`` (a ``*_scores.parquet`` file) to ``ticker`` and,
-    when given, to ``return_start_date`` in ``[start_date, end_date]``
-    (inclusive, ISO ``YYYY-MM-DD``). An empty frame means the ticker is covered
-    but had no calls in range; callers distinguish never-scraped coverage via
+    Filters ``scores_path`` (a ``*_scores.parquet`` file) to ``ticker``
+    (case-insensitive) and, when given, to ``return_start_date`` in
+    ``[start_date, end_date]`` (inclusive, ISO ``YYYY-MM-DD``). The two per-call
+    rows (ceo + cfo) are collapsed to one row per call by an equal-weight mean
+    over the ``prob_*`` columns. An empty frame means the ticker is covered but
+    had no calls in range; callers distinguish never-scraped coverage via
     :func:`ticker_is_covered`.
-
-    TODO(feature/search-transcripts): implement the parquet read + filter.
     """
-    raise NotImplementedError("stub — see feature/search-transcripts")
+    df = _read_scores(scores_path)
+    prob_cols = [c for c in df.columns if c.startswith("prob_")]
+
+    matched = _match_ticker(df, ticker)
+
+    call_dates = pd.to_datetime(matched["return_start_date"]).dt.date
+    if start_date is not None:
+        matched = matched[call_dates >= _parse_iso_date(start_date, "start_date")]
+        call_dates = call_dates[matched.index]
+    if end_date is not None:
+        matched = matched[call_dates <= _parse_iso_date(end_date, "end_date")]
+
+    if matched.empty:
+        return pd.DataFrame(columns=_RESULT_COLUMNS + prob_cols)
+
+    aggregated = (
+        matched.groupby(["transcript_id", "return_start_date", "ticker"], sort=False)[
+            prob_cols
+        ]
+        .mean()
+        .reset_index()
+        .sort_values("return_start_date")
+        .reset_index(drop=True)
+    )
+    return aggregated[_RESULT_COLUMNS + prob_cols]
 
 
 def ticker_is_covered(ticker: str, scores_path: Path = FINETUNED_SCORES_PATH) -> bool:
     """Whether ``ticker`` was ever scraped/processed into ``scores_path``.
 
     Distinguishes a never-covered ticker (no rows for it at all) from a covered
-    ticker with no matches in a requested date range.
-
-    TODO(feature/search-transcripts): implement the coverage check.
+    ticker with no matches in a requested date range. Case-insensitive.
     """
-    raise NotImplementedError("stub — see feature/search-transcripts")
+    df = _read_scores(scores_path)
+    return bool(_match_ticker(df, ticker).shape[0] > 0)
 
 
 def latest_scores_for_tickers(
