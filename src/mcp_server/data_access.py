@@ -26,6 +26,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.models.inference import PROB_COLUMNS
+
 # Repo root is four levels up: src/mcp_server/data_access.py -> repo root.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -135,8 +137,28 @@ def latest_scores_for_tickers(
 
     Batch backing for the ``compare_tickers`` tool: one row per covered ticker
     (its latest ``return_start_date``); never-covered tickers are omitted and
-    surfaced as such by the tool layer.
+    surfaced as such by the tool layer. Case-insensitive duplicate tickers
+    collapse to a single row, preserving first-seen order.
 
-    TODO(feature/compare-tickers): implement the grouped latest-row read.
+    Delegates to :func:`search_ticker_scores` per unique ticker (full history,
+    no date range) and keeps the last row, which that function returns sorted
+    ascending by call date. A never-covered ticker yields an empty frame there
+    and is silently dropped, so partial coverage never fails the batch.
     """
-    raise NotImplementedError("stub — see feature/compare-tickers")
+    kept: list[pd.DataFrame] = []
+    seen: set[str] = set()
+    for ticker in tickers:
+        key = ticker.strip().upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        matched = search_ticker_scores(ticker, scores_path=scores_path)
+        if not matched.empty:
+            kept.append(matched.tail(1))
+
+    if not kept:
+        # Stable empty schema without touching disk (PROB_COLUMNS is the
+        # canonical label contract; see module docstring).
+        return pd.DataFrame(columns=_RESULT_COLUMNS + list(PROB_COLUMNS))
+
+    return pd.concat(kept, ignore_index=True)

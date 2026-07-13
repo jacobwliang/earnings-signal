@@ -13,6 +13,7 @@ from src.models.inference import LABELS
 
 from .data_access import (
     FINETUNED_SCORES_PATH,
+    latest_scores_for_tickers,
     search_ticker_scores,
     ticker_is_covered,
 )
@@ -24,6 +25,22 @@ from .schemas import (
     TickerComparisonEntry,
 )
 from .server import mcp
+
+
+def _row_to_earnings_call_result(row, model_run_id: str) -> EarningsCallResult:
+    """Build an :class:`EarningsCallResult` from one aggregated scores row.
+
+    ``row`` is a namedtuple from ``DataFrame.itertuples(index=False)`` carrying
+    ``return_start_date`` and the per-label ``prob_*`` columns.
+    """
+    probabilities = {label: float(getattr(row, f"prob_{label}")) for label in LABELS}
+    return EarningsCallResult(
+        earnings_date=str(row.return_start_date),
+        label=max(LABELS, key=probabilities.get),
+        probabilities=probabilities,
+        model_run_id=model_run_id,
+        coverage_flag="complete",
+    )
 
 
 @mcp.tool()
@@ -61,18 +78,10 @@ def search_transcripts(
     df = search_ticker_scores(ticker, start_date, end_date)
 
     model_run_id = FINETUNED_SCORES_PATH.stem
-    results = []
-    for row in df.itertuples(index=False):
-        probabilities = {label: float(getattr(row, f"prob_{label}")) for label in LABELS}
-        results.append(
-            EarningsCallResult(
-                earnings_date=str(row.return_start_date),
-                label=max(LABELS, key=probabilities.get),
-                probabilities=probabilities,
-                model_run_id=model_run_id,
-                coverage_flag="complete",
-            )
-        )
+    results = [
+        _row_to_earnings_call_result(row, model_run_id)
+        for row in df.itertuples(index=False)
+    ]
 
     # Non-empty results imply coverage; only pay the extra read to distinguish
     # never-covered from covered-but-no-matches-in-range when results are empty.
@@ -104,13 +113,36 @@ def compare_tickers(tickers: list[str]) -> CompareTickersResult:
     Returns:
         A :class:`CompareTickersResult` with one entry per input ticker.
     """
-    # STUB: hardcoded mock, no real logic yet (see feature/compare-tickers).
-    return CompareTickersResult(
-        entries=[
-            TickerComparisonEntry(ticker=t, ticker_covered=True, latest=None)
-            for t in tickers
-        ]
-    )
+    model_run_id = FINETUNED_SCORES_PATH.stem
+    latest = latest_scores_for_tickers(tickers)
+    # One latest row per covered ticker, keyed for case-insensitive lookup.
+    by_ticker = {
+        str(row.ticker).upper(): row for row in latest.itertuples(index=False)
+    }
+
+    # With no date range, coverage <=> presence in `latest` (covered <=> has
+    # rows), so absence here means never-covered — no extra read needed.
+    entries: list[TickerComparisonEntry] = []
+    seen: set[str] = set()
+    for ticker in tickers:
+        key = ticker.strip().upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        row = by_ticker.get(key)
+        entries.append(
+            TickerComparisonEntry(
+                ticker=ticker,
+                ticker_covered=row is not None,
+                latest=(
+                    _row_to_earnings_call_result(row, model_run_id)
+                    if row is not None
+                    else None
+                ),
+            )
+        )
+
+    return CompareTickersResult(entries=entries)
 
 
 @mcp.tool()
