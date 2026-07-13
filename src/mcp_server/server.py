@@ -20,6 +20,11 @@ from . import tools  # noqa: E402,F401
 
 def main(argv: list[str] | None = None) -> None:
     """Run the MCP server over stdio transport (the process entry point)."""
+    # Load the fine-tuned checkpoint once, up front, so the first
+    # classify_earnings_sentiment call doesn't pay the ~439MB load latency.
+    from . import scoring
+
+    scoring.warm_up()
     mcp.run()
 
 

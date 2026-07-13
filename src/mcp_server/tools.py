@@ -3,10 +3,6 @@
 Thin wrappers only: each tool validates/serializes and delegates to
 :mod:`data_access` (parquet reads/filters) or :mod:`scoring` (live FinBERT
 scoring). No business logic inline.
-
-STUB STEP (ES-17/18, scaffold): each tool returns a hardcoded mock so the
-FastMCP wiring can be proven end to end. The real delegation to
-:mod:`data_access`/:mod:`scoring` lands on the follow-up feature branches.
 """
 
 from src.models.inference import LABELS
@@ -24,6 +20,7 @@ from .schemas import (
     SentimentClassification,
     TickerComparisonEntry,
 )
+from .scoring import MODEL_RUN_ID, classify_text
 from .server import mcp
 
 
@@ -162,9 +159,9 @@ def classify_earnings_sentiment(transcript_text: str) -> SentimentClassification
         A :class:`SentimentClassification` with the argmax ``label`` and the
         full per-class ``probabilities``.
     """
-    # STUB: hardcoded mock, no real logic yet (see feature/classify-sentiment).
+    probabilities = classify_text(transcript_text)
     return SentimentClassification(
-        label="neutral",
-        probabilities={"neutral": 0.6, "positive": 0.25, "negative": 0.15},
-        model_run_id="stub-run-id",
+        label=max(LABELS, key=probabilities.get),
+        probabilities=probabilities,
+        model_run_id=MODEL_RUN_ID,
     )
