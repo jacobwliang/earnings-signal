@@ -18,16 +18,34 @@ Every function below takes ``cap_col``/``cohort_col`` as an interface, so the
 module is complete and tested against synthetic data independent of that step.
 """
 
+import json
 import logging
 
 import numpy as np
 import pandas as pd
 
-from src.analysis.correlate_returns import DEFAULT_N_BOOT, DEFAULT_SEED, spearman_ci
+from src.analysis.correlate_returns import (
+    DEFAULT_N_BOOT,
+    DEFAULT_SEED,
+    FINETUNED_SCORES_PATH,
+    INDEX_PATH,
+    ROOT,
+    add_abnormal_returns,
+    aggregate_to_call,
+    spearman_ci,
+)
+from src.data.compute_returns import compute_market_returns
 
 logger = logging.getLogger(__name__)
 
 TERCILES = ("small", "mid", "large")
+
+# Primary window first, then the three robustness windows (this is the row order
+# written to the results files and quoted in the report).
+SUBGROUP_RETURN_COLS = ("abn_return_1d", "return_1d", "abn_return_5d", "return_5d")
+
+MARKET_CAPS_PATH = ROOT / "data" / "processed" / "market_caps.parquet"
+OUTPUT_JSON_PATH = ROOT / "results" / "subgroup_market_cap_results.json"
 
 
 def assign_cap_tercile(df: pd.DataFrame, cap_col: str, cohort_col: str) -> pd.Series:
@@ -136,3 +154,38 @@ def subgroup_correlation_analysis(
     summary.attrs["n_rows_total"] = n_total
     summary.attrs["n_rows_dropped"] = n_dropped
     return summary
+
+
+# --------------------------------------------------------------------------- #
+# Script: build the call table, run every window, write the results JSON the
+# report reads from. Run with: python -m src.analysis.subgroup_market_cap
+# --------------------------------------------------------------------------- #
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+
+    scores = pd.read_parquet(FINETUNED_SCORES_PATH)
+    caps = pd.read_parquet(MARKET_CAPS_PATH)
+    market_returns = compute_market_returns(
+        pd.read_parquet(INDEX_PATH), scores["return_start_date"].unique())
+    call = aggregate_to_call(add_abnormal_returns(scores, market_returns)).merge(
+        caps[["transcript_id", "market_cap"]], on="transcript_id", how="left")
+    call["cohort"] = pd.to_datetime(call["return_start_date"]).dt.to_period("Q").astype(str)
+
+    tercile_rows, pair_rows = [], []
+    for return_col in SUBGROUP_RETURN_COLS:
+        summary = subgroup_correlation_analysis(
+            call, "sentiment_score", return_col, "market_cap", "cohort")
+        tercile_rows.append(summary.assign(return_col=return_col, kind="tercile"))
+        pair_rows.append(pairwise_tercile_differences(summary)
+                         .assign(return_col=return_col, kind="pair"))
+
+    results = pd.concat([*tercile_rows, *pair_rows], ignore_index=True)
+    results["n_boot"], results["seed"] = DEFAULT_N_BOOT, DEFAULT_SEED
+    results = results.reindex(columns=[
+        "return_col", "kind", "tercile", "n", "rho", "ci_low", "ci_high",
+        "significant", "reliable", "pair", "ci_overlap", "differ", "n_boot", "seed"])
+
+    OUTPUT_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+    OUTPUT_JSON_PATH.write_text(
+        json.dumps(results.to_dict(orient="records"), indent=2, default=str))
+    print(f"Wrote {OUTPUT_JSON_PATH}")
