@@ -143,6 +143,55 @@ def test_uncovered_ticker_search_returns_empty_frame(scores):
     assert set(out.columns) == _RESULT_COLUMNS
 
 
+# --- latest_scores_for_tickers ---------------------------------------------
+
+def test_latest_returns_most_recent_row_per_ticker(scores):
+    out = data_access.latest_scores_for_tickers(["AAPL", "MSFT"])
+
+    # One row per covered ticker; AAPL collapses its two calls to the latest.
+    assert list(out["ticker"]) == ["AAPL", "MSFT"]
+    assert list(out["return_start_date"]) == [dt.date(2021, 4, 22), dt.date(2021, 2, 2)]
+    assert set(out.columns) == _RESULT_COLUMNS
+
+
+def test_latest_empty_input_returns_empty_stable_frame(scores):
+    out = data_access.latest_scores_for_tickers([])
+    assert out.empty
+    assert set(out.columns) == _RESULT_COLUMNS
+
+
+def test_latest_all_missing_returns_empty_stable_frame(scores):
+    out = data_access.latest_scores_for_tickers(["ZZZZ", "QQQQ"])
+    assert out.empty
+    assert set(out.columns) == _RESULT_COLUMNS
+
+
+def test_latest_dedupes_case_insensitive_first_seen_order(scores):
+    out = data_access.latest_scores_for_tickers(["AAPL", "aapl", "MSFT"])
+    assert list(out["ticker"]) == ["AAPL", "MSFT"]
+
+
+def test_latest_partial_coverage_does_not_raise(scores):
+    out = data_access.latest_scores_for_tickers(["AAPL", "ZZZZ"])
+    # Only the covered ticker survives; the missing one is silently dropped.
+    assert list(out["ticker"]) == ["AAPL"]
+
+
+def test_latest_delegates_once_per_unique_ticker(monkeypatch, scores):
+    calls = []
+
+    real = data_access.search_ticker_scores
+
+    def spy(ticker, *args, **kwargs):
+        calls.append(ticker)
+        return real(ticker, *args, **kwargs)
+
+    monkeypatch.setattr(data_access, "search_ticker_scores", spy)
+    data_access.latest_scores_for_tickers(["AAPL", "aapl", "MSFT"])
+    # Deduped: one lookup per unique ticker, in first-seen order.
+    assert calls == ["AAPL", "MSFT"]
+
+
 # --- integration: real parquet ---------------------------------------------
 
 @pytest.mark.data
