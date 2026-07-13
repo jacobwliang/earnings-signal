@@ -72,3 +72,22 @@ def test_compare_tickers_result_serializes(monkeypatch):
     dumped = tools.compare_tickers(["AAPL", "ZZZZ"]).model_dump()
     assert dumped["entries"][0]["ticker"] == "AAPL"
     assert dumped["entries"][1]["latest"] is None
+
+
+def test_classify_earnings_sentiment_builds_result(monkeypatch):
+    # Delegate to a fake classifier so no checkpoint/forward pass is needed;
+    # the tool's job is just argmax + schema assembly.
+    monkeypatch.setattr(
+        tools,
+        "classify_text",
+        lambda _text: {"neutral": 0.1, "positive": 0.7, "negative": 0.2},
+    )
+
+    result = tools.classify_earnings_sentiment("some transcript text")
+
+    assert result.label == "positive"  # argmax of the probabilities
+    assert result.probabilities == {"neutral": 0.1, "positive": 0.7, "negative": 0.2}
+    assert result.model_run_id  # non-empty model identity tag
+
+    dumped = result.model_dump()
+    assert dumped["label"] == "positive"
