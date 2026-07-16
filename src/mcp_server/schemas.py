@@ -18,7 +18,7 @@ class EarningsCallResult(BaseModel):
     coverage_flag: Literal["complete", "missing_price_data", "chunk_partial"]
 
 
-class SearchTranscriptsResult(BaseModel):
+class TickerSentimentHistoryResult(BaseModel):
     ticker: str
     start_date: str | None
     end_date: str | None

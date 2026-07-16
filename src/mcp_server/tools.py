@@ -16,9 +16,9 @@ from .data_access import (
 from .schemas import (
     CompareTickersResult,
     EarningsCallResult,
-    SearchTranscriptsResult,
     SentimentClassification,
     TickerComparisonEntry,
+    TickerSentimentHistoryResult,
 )
 from .scoring import MODEL_RUN_ID, classify_text
 from .server import mcp
@@ -41,12 +41,16 @@ def _row_to_earnings_call_result(row, model_run_id: str) -> EarningsCallResult:
 
 
 @mcp.tool()
-def search_transcripts(
+def get_ticker_sentiment_history(
     ticker: str,
     start_date: str | None = None,
     end_date: str | None = None,
-) -> SearchTranscriptsResult:
+) -> TickerSentimentHistoryResult:
     """Look up earnings-call sentiment classifications for a ticker.
+
+    This is a keyed lookup by ticker (and optional date range) over the
+    pipeline's persisted per-call sentiment — not a full-text search of
+    transcript contents.
 
     Searches the pipeline's persisted sentiment results for ``ticker``,
     optionally restricted to earnings dates within ``[start_date, end_date]``
@@ -69,7 +73,7 @@ def search_transcripts(
             ``YYYY-MM-DD``. ``None`` leaves the range open on the high end.
 
     Returns:
-        A :class:`SearchTranscriptsResult` echoing the query and carrying the
+        A :class:`TickerSentimentHistoryResult` echoing the query and carrying the
         matched per-call classifications.
     """
     df = search_ticker_scores(ticker, start_date, end_date)
@@ -84,7 +88,7 @@ def search_transcripts(
     # never-covered from covered-but-no-matches-in-range when results are empty.
     ticker_covered = bool(results) or ticker_is_covered(ticker)
 
-    return SearchTranscriptsResult(
+    return TickerSentimentHistoryResult(
         ticker=ticker,
         start_date=start_date,
         end_date=end_date,
@@ -98,11 +102,11 @@ def search_transcripts(
 def compare_tickers(tickers: list[str]) -> CompareTickersResult:
     """Compare the latest earnings-call sentiment across several tickers.
 
-    A batch convenience wrapper over :func:`search_transcripts`: for each
+    A batch convenience wrapper over :func:`get_ticker_sentiment_history`: for each
     ticker it surfaces the most recent classification (or ``None`` when the
     ticker is covered but has no calls, or is not covered at all). Each entry's
     ``ticker_covered`` flag carries the same never-scraped-vs-no-matches
-    distinction documented on :func:`search_transcripts`.
+    distinction documented on :func:`get_ticker_sentiment_history`.
 
     Args:
         tickers: Equity ticker symbols to compare (e.g. ``["AAPL", "MSFT"]``).
