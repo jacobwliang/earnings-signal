@@ -230,6 +230,74 @@ def test_coverage_summary_limit_caps_list_but_not_count(scores):
     assert out["covered_ticker_count"] == 2
 
 
+# --- get_transcript_sections ------------------------------------------------
+
+def _master_frame() -> pd.DataFrame:
+    """One earnings call with all three prepared sections, plus a null section."""
+    rows = [
+        ("AAPL", dt.date(2021, 1, 28), "ceo talk", "cfo talk", "other talk"),
+        ("MSFT", dt.date(2021, 2, 2), "ms ceo", None, ""),
+    ]
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "ticker",
+            "return_start_date",
+            "text_prepared_ceo",
+            "text_prepared_cfo",
+            "text_prepared_other_exec",
+        ],
+    )
+
+
+@pytest.fixture
+def master(monkeypatch):
+    frame = _master_frame()
+    monkeypatch.setattr(data_access, "_read_master_clean", lambda _path: frame.copy())
+    return frame
+
+
+def test_get_transcript_all_sections(master):
+    out = data_access.get_transcript_sections("AAPL", "2021-01-28")
+    assert out == {"ceo": "ceo talk", "cfo": "cfo talk", "other_exec": "other talk"}
+
+
+def test_get_transcript_speaker_filter(master):
+    out = data_access.get_transcript_sections("AAPL", "2021-01-28", speaker="cfo")
+    assert out == {"cfo": "cfo talk"}
+
+
+def test_get_transcript_omits_empty_and_null_sections(master):
+    out = data_access.get_transcript_sections("MSFT", "2021-02-02")
+    # Null cfo and blank other_exec are dropped; only ceo survives.
+    assert out == {"ceo": "ms ceo"}
+
+
+def test_get_transcript_is_case_insensitive(master):
+    out = data_access.get_transcript_sections("aapl", "2021-01-28", speaker="ceo")
+    assert out == {"ceo": "ceo talk"}
+
+
+def test_get_transcript_unknown_speaker_raises(master):
+    with pytest.raises(ValueError, match="speaker must be one of"):
+        data_access.get_transcript_sections("AAPL", "2021-01-28", speaker="analyst")
+
+
+def test_get_transcript_bad_date_raises(master):
+    with pytest.raises(ValueError, match=r"earnings_date must be an ISO date"):
+        data_access.get_transcript_sections("AAPL", "01/28/2021")
+
+
+def test_get_transcript_missing_call_raises(master):
+    with pytest.raises(ValueError, match="No transcript found"):
+        data_access.get_transcript_sections("AAPL", "2099-01-01")
+
+
+def test_get_transcript_missing_ticker_raises(master):
+    with pytest.raises(ValueError, match="No transcript found"):
+        data_access.get_transcript_sections("ZZZZ", "2021-01-28")
+
+
 # --- integration: real parquet ---------------------------------------------
 
 @pytest.mark.data

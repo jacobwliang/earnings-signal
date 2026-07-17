@@ -10,6 +10,7 @@ from src.models.inference import LABELS
 from .data_access import (
     FINETUNED_SCORES_PATH,
     coverage_summary,
+    get_transcript_sections,
     latest_scores_for_tickers,
     search_ticker_scores,
     ticker_is_covered,
@@ -22,6 +23,8 @@ from .schemas import (
     TickerComparisonEntry,
     TickerCoverage,
     TickerSentimentHistoryResult,
+    TranscriptResult,
+    TranscriptSection,
 )
 from .scoring import MODEL_RUN_ID, classify_text
 from .server import mcp
@@ -149,6 +152,11 @@ def compare_tickers(tickers: list[str]) -> CompareTickersResult:
     return CompareTickersResult(entries=entries)
 
 
+# Guard on total transcript text returned by get_transcript. Prepared sections
+# can run tens of thousands of characters; cap the combined payload and flag it.
+MAX_TRANSCRIPT_CHARS = 50_000
+
+
 @mcp.tool()
 def list_covered_tickers(
     prefix: str | None = None,
@@ -180,6 +188,57 @@ def list_covered_tickers(
         total_call_count=summary["total_call_count"],
         start_date=summary["start_date"],
         end_date=summary["end_date"],
+    )
+
+
+@mcp.tool()
+def get_transcript(
+    ticker: str,
+    earnings_date: str,
+    speaker: str | None = None,
+) -> TranscriptResult:
+    """Return the prepared transcript text for one earnings call.
+
+    Reads the stored ``master_clean`` prepared sections for
+    ``(ticker, earnings_date)`` (case-insensitive ticker, ISO ``YYYY-MM-DD``
+    date; the same join key used across the tools). Complements the sentiment
+    tools, which score a call but never surface the underlying text.
+
+    Args:
+        ticker: Equity ticker symbol (e.g. ``"AAPL"``).
+        earnings_date: Earnings/return-start date, ISO ``YYYY-MM-DD``.
+        speaker: Optional section filter — one of ``"ceo"``, ``"cfo"``,
+            ``"other_exec"``. ``None`` returns all available sections.
+
+    Returns:
+        A :class:`TranscriptResult`. These sections are long; the combined text
+        is capped and ``truncated`` is set ``True`` when the guard trims it, so
+        callers know they are not seeing the full text.
+
+    Raises:
+        ValueError: if ``speaker`` is unknown, ``earnings_date`` is malformed, or
+            no call matches ``(ticker, earnings_date)``.
+    """
+    sections = get_transcript_sections(ticker, earnings_date, speaker)
+
+    result_sections: list[TranscriptSection] = []
+    remaining = MAX_TRANSCRIPT_CHARS
+    truncated = False
+    for spk, text in sections.items():
+        if remaining <= 0:
+            truncated = True
+            break
+        if len(text) > remaining:
+            text = text[:remaining]
+            truncated = True
+        remaining -= len(text)
+        result_sections.append(TranscriptSection(speaker=spk, text=text))
+
+    return TranscriptResult(
+        ticker=ticker.strip().upper(),
+        earnings_date=earnings_date,
+        sections=result_sections,
+        truncated=truncated,
     )
 
 

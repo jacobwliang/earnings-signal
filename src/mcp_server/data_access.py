@@ -56,6 +56,19 @@ def _read_scores(scores_path: Path) -> pd.DataFrame:
     return pd.read_parquet(scores_path)
 
 
+def _read_master_clean(master_path: Path) -> pd.DataFrame:
+    """Read ``master_clean.parquet``. Single seam, monkeypatched in tests."""
+    return pd.read_parquet(master_path)
+
+
+# Public speaker keys -> the master_clean text columns backing get_transcript.
+MASTER_SPEAKER_COLUMNS = {
+    "ceo": "text_prepared_ceo",
+    "cfo": "text_prepared_cfo",
+    "other_exec": "text_prepared_other_exec",
+}
+
+
 def _match_ticker(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
     """Case-insensitive filter of ``df`` to rows whose ``ticker`` matches."""
     return df[df["ticker"].str.upper() == ticker.strip().upper()]
@@ -185,6 +198,54 @@ def coverage_summary(
         "start_date": start_date,
         "end_date": end_date,
     }
+
+
+def get_transcript_sections(
+    ticker: str,
+    earnings_date: str,
+    speaker: str | None = None,
+    master_path: Path = MASTER_CLEAN_PATH,
+) -> dict[str, str]:
+    """Return the prepared transcript section(s) for one earnings call.
+
+    Looks up ``master_clean.parquet`` by ``(ticker, return_start_date)`` (the
+    same join key used elsewhere; case-insensitive ticker, ISO ``earnings_date``)
+    and returns a dict mapping speaker key -> section text for every non-empty
+    section. When ``speaker`` is given, only that section is returned; otherwise
+    all available sections (ceo, cfo, other_exec) are.
+
+    Raises ``ValueError`` with a clear message when ``speaker`` is unknown, the
+    date is malformed, or no call matches ``(ticker, earnings_date)``.
+    """
+    if speaker is not None and speaker not in MASTER_SPEAKER_COLUMNS:
+        raise ValueError(
+            f"speaker must be one of {sorted(MASTER_SPEAKER_COLUMNS)}, got {speaker!r}"
+        )
+    call_date = _parse_iso_date(earnings_date, "earnings_date")
+
+    df = _read_master_clean(master_path)
+    matched = _match_ticker(df, ticker)
+    call_dates = pd.to_datetime(matched["return_start_date"]).dt.date
+    matched = matched[call_dates == call_date]
+
+    if matched.empty:
+        raise ValueError(
+            f"No transcript found for ticker {ticker.strip().upper()!r} "
+            f"on {earnings_date}"
+        )
+
+    row = matched.iloc[0]
+    columns = (
+        {speaker: MASTER_SPEAKER_COLUMNS[speaker]}
+        if speaker is not None
+        else MASTER_SPEAKER_COLUMNS
+    )
+    sections: dict[str, str] = {}
+    for spk, col in columns.items():
+        value = row.get(col)
+        if pd.notna(value) and str(value).strip():
+            sections[spk] = str(value)
+    return sections
 
 
 def latest_scores_for_tickers(

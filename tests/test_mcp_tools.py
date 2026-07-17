@@ -8,6 +8,7 @@ data-access layer is mocked so no parquet is touched.
 import datetime as dt
 
 import pandas as pd
+import pytest
 
 from src.mcp_server import tools
 
@@ -115,6 +116,45 @@ def test_list_covered_tickers_passes_prefix_and_limit(monkeypatch):
     monkeypatch.setattr(tools, "coverage_summary", fake_summary)
     tools.list_covered_tickers(prefix="AA", limit=5)
     assert captured == {"prefix": "AA", "limit": 5}
+
+
+def test_get_transcript_returns_sections(monkeypatch):
+    monkeypatch.setattr(
+        tools,
+        "get_transcript_sections",
+        lambda *_a, **_k: {"ceo": "hello ceo", "cfo": "hello cfo"},
+    )
+
+    result = tools.get_transcript("aapl", "2021-01-28")
+
+    assert result.ticker == "AAPL"
+    assert result.earnings_date == "2021-01-28"
+    assert [(s.speaker, s.text) for s in result.sections] == [
+        ("ceo", "hello ceo"),
+        ("cfo", "hello cfo"),
+    ]
+    assert result.truncated is False
+
+
+def test_get_transcript_truncates_oversized_text(monkeypatch):
+    long_text = "x" * (tools.MAX_TRANSCRIPT_CHARS + 100)
+    monkeypatch.setattr(
+        tools, "get_transcript_sections", lambda *_a, **_k: {"ceo": long_text}
+    )
+
+    result = tools.get_transcript("AAPL", "2021-01-28")
+
+    assert result.truncated is True
+    assert len(result.sections[0].text) == tools.MAX_TRANSCRIPT_CHARS
+
+
+def test_get_transcript_missing_call_raises(monkeypatch):
+    def boom(*_a, **_k):
+        raise ValueError("No transcript found for ticker 'ZZZZ' on 2021-01-28")
+
+    monkeypatch.setattr(tools, "get_transcript_sections", boom)
+    with pytest.raises(ValueError, match="No transcript found"):
+        tools.get_transcript("ZZZZ", "2021-01-28")
 
 
 def test_classify_earnings_sentiment_builds_result(monkeypatch):

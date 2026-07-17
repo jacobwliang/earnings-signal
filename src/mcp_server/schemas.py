@@ -54,3 +54,15 @@ class CoverageSummaryResult(BaseModel):
     total_call_count: int
     start_date: str | None
     end_date: str | None
+
+
+class TranscriptSection(BaseModel):
+    speaker: Literal["ceo", "cfo", "other_exec"]
+    text: str
+
+
+class TranscriptResult(BaseModel):
+    ticker: str
+    earnings_date: str
+    sections: list[TranscriptSection]
+    truncated: bool
