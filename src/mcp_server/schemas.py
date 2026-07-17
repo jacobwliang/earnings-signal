@@ -41,3 +41,16 @@ class SentimentClassification(BaseModel):
     label: Literal["neutral", "positive", "negative"]
     probabilities: dict[str, float]
     model_run_id: str
+
+
+class TickerCoverage(BaseModel):
+    ticker: str
+    call_count: int
+
+
+class CoverageSummaryResult(BaseModel):
+    tickers: list[TickerCoverage]
+    covered_ticker_count: int
+    total_call_count: int
+    start_date: str | None
+    end_date: str | None

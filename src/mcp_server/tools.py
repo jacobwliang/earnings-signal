@@ -9,15 +9,18 @@ from src.models.inference import LABELS
 
 from .data_access import (
     FINETUNED_SCORES_PATH,
+    coverage_summary,
     latest_scores_for_tickers,
     search_ticker_scores,
     ticker_is_covered,
 )
 from .schemas import (
     CompareTickersResult,
+    CoverageSummaryResult,
     EarningsCallResult,
     SentimentClassification,
     TickerComparisonEntry,
+    TickerCoverage,
     TickerSentimentHistoryResult,
 )
 from .scoring import MODEL_RUN_ID, classify_text
@@ -144,6 +147,40 @@ def compare_tickers(tickers: list[str]) -> CompareTickersResult:
         )
 
     return CompareTickersResult(entries=entries)
+
+
+@mcp.tool()
+def list_covered_tickers(
+    prefix: str | None = None,
+    limit: int | None = None,
+) -> CoverageSummaryResult:
+    """Summarize which tickers and earnings calls the pipeline covers.
+
+    A discovery tool for "what do you have?" — reads the persisted sentiment
+    scores once and reports the covered tickers (with per-ticker call counts),
+    the overall earnings-date range, and total call count. Use this before the
+    keyed lookups (:func:`get_ticker_sentiment_history`, :func:`compare_tickers`)
+    when you don't yet know which tickers exist.
+
+    Args:
+        prefix: Optional case-insensitive ticker prefix filter (e.g. ``"AA"``
+            returns only ``AAL``, ``AAPL``, ...). ``None`` returns all tickers.
+        limit: Optional cap on the number of tickers listed, to avoid dumping
+            hundreds of symbols. ``covered_ticker_count`` still reports the full
+            count matching ``prefix`` so scope is visible even when truncated.
+
+    Returns:
+        A :class:`CoverageSummaryResult`. ``total_call_count`` and the date range
+        describe the whole dataset and are unaffected by ``prefix``.
+    """
+    summary = coverage_summary(prefix=prefix, limit=limit)
+    return CoverageSummaryResult(
+        tickers=[TickerCoverage(**entry) for entry in summary["tickers"]],
+        covered_ticker_count=summary["covered_ticker_count"],
+        total_call_count=summary["total_call_count"],
+        start_date=summary["start_date"],
+        end_date=summary["end_date"],
+    )
 
 
 @mcp.tool()

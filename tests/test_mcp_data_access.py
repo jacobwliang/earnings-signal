@@ -192,6 +192,44 @@ def test_latest_delegates_once_per_unique_ticker(monkeypatch, scores):
     assert calls == ["AAPL", "MSFT"]
 
 
+# --- coverage_summary -------------------------------------------------------
+
+def test_coverage_summary_full(scores):
+    out = data_access.coverage_summary()
+
+    # Two distinct tickers, sorted alphabetically, with per-ticker call counts.
+    assert out["tickers"] == [
+        {"ticker": "AAPL", "call_count": 2},
+        {"ticker": "MSFT", "call_count": 1},
+    ]
+    assert out["covered_ticker_count"] == 2
+    # Three distinct calls across the dataset (AAPL x2, MSFT x1).
+    assert out["total_call_count"] == 3
+    assert out["start_date"] == "2021-01-28"
+    assert out["end_date"] == "2021-04-22"
+
+
+def test_coverage_summary_prefix_filters_tickers(scores):
+    out = data_access.coverage_summary(prefix="AA")
+    assert [t["ticker"] for t in out["tickers"]] == ["AAPL"]
+    assert out["covered_ticker_count"] == 1
+    # Overall stats still describe the whole dataset, not the prefix subset.
+    assert out["total_call_count"] == 3
+    assert out["end_date"] == "2021-04-22"
+
+
+def test_coverage_summary_prefix_is_case_insensitive(scores):
+    out = data_access.coverage_summary(prefix="aa")
+    assert [t["ticker"] for t in out["tickers"]] == ["AAPL"]
+
+
+def test_coverage_summary_limit_caps_list_but_not_count(scores):
+    out = data_access.coverage_summary(limit=1)
+    assert [t["ticker"] for t in out["tickers"]] == ["AAPL"]
+    # covered_ticker_count reflects the full match count, pre-limit.
+    assert out["covered_ticker_count"] == 2
+
+
 # --- integration: real parquet ---------------------------------------------
 
 @pytest.mark.data

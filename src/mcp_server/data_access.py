@@ -129,6 +129,64 @@ def ticker_is_covered(ticker: str, scores_path: Path = FINETUNED_SCORES_PATH) ->
     return bool(_match_ticker(df, ticker).shape[0] > 0)
 
 
+def coverage_summary(
+    prefix: str | None = None,
+    limit: int | None = None,
+    scores_path: Path = FINETUNED_SCORES_PATH,
+) -> dict:
+    """Summarize which tickers/calls the scores parquet covers.
+
+    Reads ``scores_path`` once and returns a dict with:
+      * ``tickers`` — list of ``{"ticker", "call_count"}`` (distinct calls per
+        ticker), alphabetically sorted, filtered by ``prefix`` (case-insensitive)
+        and capped at ``limit``.
+      * ``covered_ticker_count`` — total distinct tickers matching ``prefix``,
+        *before* ``limit`` is applied, so callers can gauge scope.
+      * ``total_call_count`` — distinct calls across the whole dataset.
+      * ``start_date`` / ``end_date`` — overall ``return_start_date`` min/max
+        (ISO ``YYYY-MM-DD``), or ``None`` when the dataset is empty.
+
+    ``total_call_count`` and the date range describe overall coverage and are
+    unaffected by ``prefix``; only the ticker list and ``covered_ticker_count``
+    reflect the ``prefix`` filter.
+    """
+    df = _read_scores(scores_path)
+    if df.empty:
+        return {
+            "tickers": [],
+            "covered_ticker_count": 0,
+            "total_call_count": 0,
+            "start_date": None,
+            "end_date": None,
+        }
+
+    tickers_upper = df["ticker"].str.upper()
+    per_ticker = df.groupby(tickers_upper)["transcript_id"].nunique().sort_index()
+
+    call_dates = pd.to_datetime(df["return_start_date"]).dt.date
+    total_call_count = int(df["transcript_id"].nunique())
+    start_date = call_dates.min().isoformat()
+    end_date = call_dates.max().isoformat()
+
+    if prefix:
+        per_ticker = per_ticker[per_ticker.index.str.startswith(prefix.strip().upper())]
+    covered_ticker_count = int(per_ticker.shape[0])
+
+    if limit is not None:
+        per_ticker = per_ticker.iloc[:limit]
+
+    tickers = [
+        {"ticker": str(t), "call_count": int(c)} for t, c in per_ticker.items()
+    ]
+    return {
+        "tickers": tickers,
+        "covered_ticker_count": covered_ticker_count,
+        "total_call_count": total_call_count,
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+
+
 def latest_scores_for_tickers(
     tickers: list[str],
     scores_path: Path = FINETUNED_SCORES_PATH,

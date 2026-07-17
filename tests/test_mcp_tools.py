@@ -74,6 +74,49 @@ def test_compare_tickers_result_serializes(monkeypatch):
     assert dumped["entries"][1]["latest"] is None
 
 
+def test_list_covered_tickers_builds_result(monkeypatch):
+    summary = {
+        "tickers": [
+            {"ticker": "AAPL", "call_count": 2},
+            {"ticker": "MSFT", "call_count": 1},
+        ],
+        "covered_ticker_count": 2,
+        "total_call_count": 3,
+        "start_date": "2021-01-28",
+        "end_date": "2021-04-22",
+    }
+    monkeypatch.setattr(tools, "coverage_summary", lambda **_kw: summary)
+
+    result = tools.list_covered_tickers()
+
+    assert [t.ticker for t in result.tickers] == ["AAPL", "MSFT"]
+    assert result.tickers[0].call_count == 2
+    assert result.covered_ticker_count == 2
+    assert result.total_call_count == 3
+    assert result.start_date == "2021-01-28"
+
+    dumped = result.model_dump()
+    assert dumped["tickers"][1]["ticker"] == "MSFT"
+
+
+def test_list_covered_tickers_passes_prefix_and_limit(monkeypatch):
+    captured = {}
+
+    def fake_summary(**kwargs):
+        captured.update(kwargs)
+        return {
+            "tickers": [],
+            "covered_ticker_count": 0,
+            "total_call_count": 0,
+            "start_date": None,
+            "end_date": None,
+        }
+
+    monkeypatch.setattr(tools, "coverage_summary", fake_summary)
+    tools.list_covered_tickers(prefix="AA", limit=5)
+    assert captured == {"prefix": "AA", "limit": 5}
+
+
 def test_classify_earnings_sentiment_builds_result(monkeypatch):
     # Delegate to a fake classifier so no checkpoint/forward pass is needed;
     # the tool's job is just argmax + schema assembly.
